@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <title>VIP Entry Scanner</title>
+
+  <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: Arial, sans-serif;
+      background: #fffaf0;
+      color: #8a6d00;
+      text-align: center;
+    }
+
+    .header {
+      background: #D4AF37;
+      color: white;
+      padding: 20px;
+      font-size: 25px;
+      font-weight: bold;
+    }
+
+    .container {
+      max-width: 500px;
+      margin: auto;
+      padding: 20px;
+    }
+
+    .subtitle {
+      margin: 10px 0 20px;
+      font-size: 16px;
+    }
+
+    #reader {
+      width: 100%;
+      max-width: 400px;
+      margin: 20px auto;
+      border: 3px solid #D4AF37;
+      border-radius: 15px;
+      overflow: hidden;
+      background: white;
+    }
+
+    button {
+      border: none;
+      background: #D4AF37;
+      color: white;
+      padding: 14px 25px;
+      border-radius: 10px;
+      font-size: 17px;
+      font-weight: bold;
+      cursor: pointer;
+      margin: 8px;
+    }
+
+    button:hover {
+      background: #C99700;
+    }
+
+    .result {
+      display: none;
+      margin-top: 20px;
+      padding: 20px;
+      border-radius: 15px;
+      background: white;
+      border: 2px solid #D4AF37;
+    }
+
+    .success {
+      color: green;
+    }
+
+    .error {
+      color: red;
+    }
+
+    .warning {
+      color: #C99700;
+    }
+
+    .vip-id {
+      font-size: 25px;
+      font-weight: bold;
+      margin: 15px 0;
+    }
+
+    .token {
+      font-family: monospace;
+      font-size: 18px;
+      background: #fffaf0;
+      padding: 8px;
+      border-radius: 6px;
+      display: inline-block;
+    }
+
+    .time {
+      margin-top: 10px;
+      font-size: 15px;
+    }
+
+    #scanNext {
+      display: none;
+    }
+  </style>
+</head>
+
+<body>
+
+  <div class="header">
+    🎟️ VIP ENTRY SCANNER
+  </div>
+
+  <div class="container">
+
+    <div class="subtitle">
+      Scan the VIP QR Code to allow entry
+    </div>
+
+    <div id="reader"></div>
+
+    <button id="startButton" onclick="startScanner()">
+      📷 Start Scanner
+    </button>
+
+    <div id="resultBox" class="result"></div>
+
+    <button id="scanNext" onclick="scanNext()">
+      🔄 Scan Next
+    </button>
+
+  </div>
+
+<script>
+
+  // =========================================================
+  // IMPORTANT:
+  // Paste your Apps Script WEB APP /exec URL here
+  // =========================================================
+
+  const API_URL =
+    "https://script.google.com/macros/s/AKfycbxEeOuDPyk5AD-J8zUtb1YarhmtJ7v2pUXbb-bX0JgoxzrvWJ1bCUiKWFG65oXnb9NpPA/exec";
+
+
+  let scanner = null;
+  let scanning = false;
+
+
+  // =========================================================
+  // START CAMERA
+  // =========================================================
+
+  function startScanner() {
+
+    if (scanning) {
+      return;
+    }
+
+    document.getElementById("resultBox").style.display = "none";
+    document.getElementById("scanNext").style.display = "none";
+
+    scanner = new Html5Qrcode("reader");
+
+    scanner.start(
+      {
+        facingMode: "environment"
+      },
+      {
+        fps: 10,
+        qrbox: {
+          width: 250,
+          height: 250
+        }
+      },
+
+      function(decodedText) {
+
+        if (!scanning) {
+          return;
+        }
+
+        scanning = false;
+
+        console.log("QR scanned:", decodedText);
+
+        stopScanner();
+
+        // Send token to Google Apps Script
+        callBackend(decodedText);
+
+      },
+
+      function(errorMessage) {
+        // Ignore continuous scanning errors
+      }
+
+    ).then(function() {
+
+      scanning = true;
+
+      document.getElementById("startButton").style.display = "none";
+
+    }).catch(function(error) {
+
+      console.error(error);
+
+      showError(
+        "Camera could not start.<br><br>" +
+        "Please allow camera permission and try again."
+      );
+
+    });
+  }
+
+
+  // =========================================================
+  // STOP CAMERA
+  // =========================================================
+
+  function stopScanner() {
+
+    if (scanner) {
+
+      scanner.stop()
+        .then(function() {
+
+          scanner.clear();
+
+        })
+        .catch(function(error) {
+
+          console.log("Scanner stop error:", error);
+
+        });
+
+    }
+  }
+
+
+  // =========================================================
+  // SEND QR TOKEN TO GOOGLE APPS SCRIPT
+  // =========================================================
+
+  function callBackend(token) {
+
+    const callbackName =
+      "vipCallback_" + Date.now();
+
+    const script =
+      document.createElement("script");
+
+
+    window[callbackName] = function(result) {
+
+      console.log("Backend result:", result);
+
+      showResult(result);
+
+      delete window[callbackName];
+
+      if (script.parentNode) {
+        script.parentNode.removeChild(script);
+      }
+
+    };
+
+
+    script.src =
+      API_URL +
+      "?action=scan" +
+      "&token=" +
+      encodeURIComponent(token) +
+      "&callback=" +
+      callbackName;
+
+
+    script.onerror = function() {
+
+      delete window[callbackName];
+
+      showError(
+        "Could not connect to the server.<br><br>" +
+        "Please check your internet connection."
+      );
+
+      if (script.parentNode) {
+        script.parentNode.removeChild(script);
+      }
+
+    };
+
+
+    document.body.appendChild(script);
+  }
+
+
+  // =========================================================
+  // SHOW BACKEND RESULT
+  // =========================================================
+
+  function showResult(result) {
+
+    const box =
+      document.getElementById("resultBox");
+
+    box.style.display = "block";
+
+
+    // ENTRY ALLOWED
+    if (result.success) {
+
+      box.className = "result";
+
+      box.innerHTML = `
+
+        <div class="success"
+             style="font-size:30px;font-weight:bold;">
+          ✓ ENTRY ALLOWED
+        </div>
+
+        <div class="vip-id">
+          ${escapeHtml(result.vipId)}
+        </div>
+
+        <div>
+          QR Token
+        </div>
+
+        <div class="token">
+          ${escapeHtml(result.token)}
+        </div>
+
+        <div class="time">
+          Entry Time:<br>
+          ${escapeHtml(result.time)}
+        </div>
+
+      `;
+
+      document.getElementById("scanNext").style.display = "inline-block";
+
+      return;
+    }
+
+
+    // ALREADY ENTERED
+    if (result.alreadyEntered) {
+
+      box.className = "result";
+
+      box.innerHTML = `
+
+        <div class="warning"
+             style="font-size:28px;font-weight:bold;">
+          ⚠ ALREADY ENTERED
+        </div>
+
+        <div class="vip-id">
+          ${escapeHtml(result.vipId)}
+        </div>
+
+        <div>
+          This VIP has already entered.
+        </div>
+
+        <div class="time">
+          Previous Entry:<br>
+          ${escapeHtml(result.time)}
+        </div>
+
+      `;
+
+      document.getElementById("scanNext").style.display = "inline-block";
+
+      return;
+    }
+
+
+    // INVALID QR
+    if (result.notFound) {
+
+      box.className = "result";
+
+      box.innerHTML = `
+
+        <div class="error"
+             style="font-size:28px;font-weight:bold;">
+          ✕ INVALID QR CODE
+        </div>
+
+        <div style="margin-top:10px;">
+          This QR code is not registered.
+        </div>
+
+      `;
+
+      document.getElementById("scanNext").style.display = "inline-block";
+
+      return;
+    }
+
+
+    // OTHER ERROR
+    showError(
+      "✕ ERROR<br><br>" +
+      escapeHtml(result.error || "Unknown error")
+    );
+  }
+
+
+  // =========================================================
+  // ERROR DISPLAY
+  // =========================================================
+
+  function showError(message) {
+
+    const box =
+      document.getElementById("resultBox");
+
+    box.style.display = "block";
+    box.className = "result";
+
+    box.innerHTML = `
+
+      <div class="error"
+           style="font-size:25px;font-weight:bold;">
+        ${message}
+      </div>
+
+    `;
+
+    document.getElementById("scanNext").style.display =
+      "inline-block";
+  }
+
+
+  // =========================================================
+  // SCAN NEXT
+  // =========================================================
+
+  function scanNext() {
+
+    document.getElementById("resultBox").style.display =
+      "none";
+
+    document.getElementById("scanNext").style.display =
+      "none";
+
+    document.getElementById("startButton").style.display =
+      "inline-block";
+
+    startScanner();
+  }
+
+
+  // =========================================================
+  // SECURITY: DISPLAY TEXT SAFELY
+  // =========================================================
+
+  function escapeHtml(text) {
+
+    return String(text || "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#039;");
+
+  }
+
+</script>
+
+</body>
+</html>
